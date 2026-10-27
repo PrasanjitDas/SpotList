@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Song Helper</title>
+    <style>
+        html {
+            min-height: 100%;
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            padding: 20px;
+            background: #121212;
+            color: #fff;
+            max-width: 600px;
+            margin: 0 auto;
+            background-image: repeating-radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 7px);
+            background-repeat: no-repeat;
+
+        }
+
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            background: #fff;
+            color: #121212;
+            border: none;
+            border-radius: 9px;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            gap: 8px;
+        }
+
+        li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            background: #1f1f1f;
+            border-radius: 9px;
+        }
+
+        .song {
+            flex: 1;
+            min-width: 0;
+            display: grid;
+            gap: 2px;
+        }
+
+        .song b {
+            font-weight: 600;
+        }
+
+        .song span {
+            font-size: 13px;
+            color: #a8add0;
+        }
+
+        a {
+            flex-shrink: 0;
+            padding: 10px 14px;
+            border: 1.5px solid #1ed760;
+            color: #1ed760;
+            border-radius: 9px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .done {
+            flex-shrink: 0;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            border: 1.5px solid #4a4a4a;
+            border-radius: 9px;
+            background: none;
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .empty {
+            justify-content: center;
+            color: #aaafd0;
+        }
+
+        .undo {
+            background: none;
+            color: #fff;
+            border: 1.5px solid #4a4a4a;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>My Song Helper</h1>
+
+    <button onclick="loadSongs()">Load my songs</button>
+    <ul id="songList"></ul>
+    <button class="undo" onclick="undoLast()">Undo</button>
+    <script>
+        const API_KEY = "AIzaSyDeCJMMkluEsvk01ojaYIpND0tcqpTKDFU";
+        const PLAYLIST_ID = "PLaopoikFnUwo";
+        function cleanTitle(title) {
+            title = title.split("|")[0];
+            title = title.replace(/[(\[][^)\]]*(official|video|lyric|audio|visuali[sz]er|full song)[^)\]]*[)\]]/gi, " ");
+            title = title.replace(/\s\(?(ft|feat|featuring)\.?\s[^-(\[)]*\)?/gi, " ");
+            return title.replace(/\s+/g, " ").trim();
+        }
+        function searchText(title) {
+            return title.replace(/[(\[][^)\]]*[)\]]/g, "").trim();
+        }
+        function getDoneList() {
+            const saved = localStorage.getItem("doneSongs");
+            if (saved === null) {
+                return [];
+            }
+            return JSON.parse(saved);
+        }
+        function markDone(videoId) {
+            const doneList = getDoneList();
+            doneList.push(videoId);
+            localStorage.setItem("doneSongs", JSON.stringify(doneList));
+        }
+        function showIfEmpty(list) {
+            if (list.children.length === 0) {
+                const note = document.createElement("li");
+                note.className = "empty";
+                note.textContent = "All caught up! 🎉";
+                list.appendChild(note);
+            }
+        }
+        function undoLast() {
+            const doneList = getDoneList();
+            doneList.pop();
+            localStorage.setItem("doneSongs", JSON.stringify(doneList));
+            loadSongs();
+        }
+        async function loadSongs() {
+            const url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId="
+                + PLAYLIST_ID + "&key=" + API_KEY;
+            const response = await fetch(url);
+            const data = await response.json();
+            const list = document.getElementById("songList");
+            list.textContent = "";
+            const doneList = getDoneList();
+            for (const item of data.items) {
+                const videoId = item.snippet.resourceId.videoId;
+                if (doneList.includes(videoId)) {
+                    continue;
+                }
+                const raw = item.snippet.title;
+                const clean = cleanTitle(raw);
+                const parts = clean.split(" - ");
+                let song = clean;
+                let artist = "";
+                if (parts.length === 2 && !raw.includes("|")) {
+                    artist = parts[0];
+                    song = parts[1];
+                }
+                const li = document.createElement("li");
+                const box = document.createElement("div");
+                box.className = "song";
+                const songLine = document.createElement("b");
+                songLine.textContent = song;
+                const artistLine = document.createElement("span");
+                artistLine.textContent = artist;
+                box.appendChild(songLine);
+                box.appendChild(artistLine);
+                li.appendChild(box);
+                const link = document.createElement("a");
+                link.href = "https://open.spotify.com/search/" + encodeURIComponent(searchText(clean));
+                link.textContent = "Spotify ↗";
+                link.target = "_blank";
+                li.appendChild(link);
+                const doneButton = document.createElement("button");
+                doneButton.className = "done";
+                doneButton.textContent = "✓";
+                doneButton.onclick = function () {
+                    markDone(videoId);
+                    li.remove();
+                    showIfEmpty(list);
+                };
+                li.appendChild(doneButton);
+                list.appendChild(li);
+            }
+            showIfEmpty(list);
+        }
+    </script>
+</body>
+
+</html>
