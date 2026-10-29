@@ -10,7 +10,8 @@
     <link rel="apple-touch-icon" href="icon.png">
     <meta property="og:title" content="SpotList">
     <meta property="og:description" content="Turn my YouTube finds into Spotify songs">
-    <meta property="og:image" content="https://prasanjitdas.github.io/Spotify_Playlist_Maker/icon.png">
+    <meta property="og:image" content="https://prasanjitdas.github.io/SpotList/icon.png">
+
     <style>
         html {
             min-height: 100%;
@@ -104,18 +105,48 @@
             color: #fff;
             border: 1.5px solid #4a4a4a;
         }
+
+        #setup {
+            background: #1f1f1f;
+            padding: 14px;
+            border-radius: 9px;
+            margin-bottom: 16px;
+        }
+
+        #setup p {
+            margin: 0 0 10px;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            font-size: 16px;
+            background: #121212;
+            color: #fff;
+            border: 1.5px solid #4a4a4a;
+            border-radius: 9px;
+        }
     </style>
 </head>
 
 <body>
     <h1>SpotList</h1>
 
+    <div id="setup">
+        <p>Paste your YouTube playlist link. It stays on this device.</p>
+        <input id="playlistBox" placeholder="https://youtube.com/playlist?list=...">
+        <button onclick="savePlaylist()">Save</button>
+
+    </div>
     <button onclick="loadSongs()">Load my songs</button>
     <ul id="songList"></ul>
     <button class="undo" onclick="undoLast()">Undo</button>
+    <button class="undo" onclick="changePlaylist()">Change playlist</button>
+
     <script>
         const API_KEY = "AIzaSyDeCJMMkluEsvk01ojaYIpND0tcqpTKDFU";
-        const PLAYLIST_ID = "PLaopoikFnUwo";
         function cleanTitle(title) {
             title = title.split("|")[0];
             title = title.replace(/[(\[][^)\]]*(official|video|lyric|audio|visuali[sz]er|full song)[^)\]]*[)\]]/gi, " ");
@@ -145,26 +176,98 @@
                 list.appendChild(note);
             }
         }
+        function explainError(error) {
+            const reason = error.errors[0].reason;
+            if (reason === "quotaExceeded") {
+                return "SpotList has used up today's YouTube allowance. Try again after 1:30 pm.";
+            }
+            if (reason === "playlistNotFound" || reason === "playlistItemsNotAccessible" || reason === "invalid") {
+                return "Can't open that playlist. Check that it's set to Unlisted or Public.";
+            }
+            return "YouTube said no (" + reason + "). Try again later.";
+        }
+        function getPlaylistId(text) {
+            const match = text.match(/list=([A-Za-z0-9_-]+)/);
+            if (match) {
+                return match[1];
+            }
+            return text.trim();
+        }
+        function savePlaylist() {
+            const box = document.getElementById("playlistBox");
+            const id = getPlaylistId(box.value);
+            const list = document.getElementById("songList");
+            list.textContent = "";
+            if (id.length < 10 || !/^[A-Za-z0-9_-]+$/.test(id)) {
+                showMessage(list, "That doesn't look like a playlist link. In YouTube, open the playlist, tap Share, then Copy link.");
+                return;
+            }
+            localStorage.setItem("playlistId", id);
+            box.value = "";
+            updateSetup();
+            loadSongs();
+        }
+        function updateSetup() {
+            const saved = localStorage.getItem("playlistId");
+            document.getElementById("setup").hidden = (saved !== null);
+        }
+        function changePlaylist() {
+            document.getElementById("setup").hidden = false;
+            document.getElementById("playlistBox").focus();
+        }
         function undoLast() {
             const doneList = getDoneList();
             doneList.pop();
             localStorage.setItem("doneSongs", JSON.stringify(doneList));
             loadSongs();
         }
+        function showMessage(list, text) {
+            const note = document.createElement("li");
+            note.className = "empty";
+            note.textContent = text;
+            list.appendChild(note);
+        }
         async function loadSongs() {
-            const url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId="
-                + PLAYLIST_ID + "&key=" + API_KEY;
-            const response = await fetch(url);
-            const data = await response.json();
             const list = document.getElementById("songList");
             list.textContent = "";
+            const playlistId = localStorage.getItem("playlistId");
+            if (playlistId === null) {
+                showMessage(list, "Paste your playlist link above first.");
+                return;
+            }
+            const url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId="
+                + playlistId + "&key=" + API_KEY;
+            let items = [];
+            let pageUrl = url;
+            while (true) {
+                let data;
+                try {
+                    const response = await fetch(pageUrl);
+                    data = await response.json();
+                } catch (error) {
+                    showMessage(list, "Can't reach YouTube. Check your internet and try again.");
+                    return;
+                }
+                if (data.error) {
+                    showMessage(list, explainError(data.error));
+                    return;
+                }
+                items = items.concat(data.items);
+                if (!data.nextPageToken) {
+                    break;
+                }
+                pageUrl = url + "&pageToken=" + data.nextPageToken;
+            }
             const doneList = getDoneList();
-            for (const item of data.items) {
+            for (const item of items) {
                 const videoId = item.snippet.resourceId.videoId;
                 if (doneList.includes(videoId)) {
                     continue;
                 }
                 const raw = item.snippet.title;
+                if (raw === "Private video" || raw === "Deleted video") {
+                    continue;
+                }
                 const clean = cleanTitle(raw);
                 const parts = clean.split(" - ");
                 let song = clean;
@@ -201,6 +304,7 @@
             }
             showIfEmpty(list);
         }
+        updateSetup();
     </script>
 </body>
 
